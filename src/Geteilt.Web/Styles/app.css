@@ -1,0 +1,187 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Inter is the licensed stand-in for the mock-ups' Helvetica Neue. Until the woff2
+   files are vendored, machines that have Helvetica Neue get the original and the rest get
+   system-ui — metrics are close enough that the layout does not move. */
+@layer base {
+  html {
+    font-family: Inter, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-linen text-ink font-bold;
+    background-image: theme('backgroundImage.linen-weave');
+  }
+
+  /* Blazor shows this bar by displaying an element the framework leaves hidden. The template's
+     stylesheet is gone, so the rule has to live here — without it the bar is on screen from the
+     first paint and every screen reads as broken. */
+  #blazor-error-ui {
+    display: none;
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 100;
+    padding: 12px 16px;
+    background: #7c4a1a;
+    color: #fff;
+    font-size: 14px;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  #blazor-error-ui .reload {
+    color: #fff;
+    text-decoration: underline;
+    margin-left: 8px;
+  }
+
+  /* Amounts line up in columns only if the digits are all one width. */
+  .tnum,
+  input[inputmode='decimal'] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Materials. Leather is edges and headers only, never the working area — the moment it becomes a background the skeuomorphism turns into costume. */
+  .leather-bar {
+    @apply bg-leather-h shadow-leather text-white;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.5);
+  }
+
+  .card {
+    @apply bg-surface-v border border-border rounded-card shadow-card;
+  }
+
+  .row {
+    @apply flex items-center gap-3 px-4 min-h-[44px] text-row;
+  }
+
+  .row + .row {
+    @apply border-t border-border/50;
+  }
+
+  .field {
+    @apply w-full bg-white border border-border rounded-ctl shadow-inset-field px-3 py-2 text-body font-normal text-ink;
+  }
+
+  .field:focus {
+    @apply outline-none ring-2 ring-action/60;
+  }
+
+  .label-caps {
+    @apply text-label uppercase tracking-[0.06em] text-ink-muted font-bold;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  /* Candy buttons: highlight inside the top edge, soft drop below, hard midpoint break. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-btn border border-border-strong
+           shadow-btn px-6 min-h-[46px] text-row font-bold select-none;
+  }
+
+  .btn:active {
+    @apply translate-y-px shadow-none;
+  }
+
+  .btn:disabled {
+    @apply opacity-50 pointer-events-none;
+  }
+
+  .btn-plain {
+    @apply bg-btn-plain text-ink;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .btn-action {
+    @apply bg-btn-action text-white;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .btn-success {
+    @apply bg-btn-success text-white;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .btn-sm {
+    @apply min-h-[38px] px-4;
+  }
+
+  /* The QR screen is light whatever the rest of the app does: a dark code on a dark screen does
+     not scan. Explicit colours rather than inherited ones, so a dark theme added
+     later cannot reach in. */
+  .force-light {
+    color-scheme: light;
+    @apply bg-linen text-ink;
+  }
+
+  /* At least 60 % of a phone's width in portrait; in landscape the short side limits it, hence
+     the vh term. The white mat is the quiet zone a scanner needs around the code. */
+  .qr-frame {
+    width: min(100%, 70vh, 480px);
+    @apply aspect-square bg-white rounded-qr border border-border p-[13px] shadow-card;
+  }
+
+  /* Side by side in landscape, the figure needs a width of its own: left to content, the 100 %
+     inside .qr-frame would resolve against the whole row and push the text into a sliver. */
+  .qr-figure {
+    width: 100%;
+  }
+
+  @media (orientation: landscape) {
+    .qr-figure {
+      width: min(70vh, 480px);
+      flex-shrink: 0;
+    }
+  }
+
+  .qr-frame img {
+    @apply w-full h-full;
+    image-rendering: pixelated;
+  }
+
+  .amount-credit {
+    @apply text-credit tnum;
+  }
+
+  .amount-debt {
+    @apply text-debt tnum;
+  }
+
+  /* The picker for "paid by": one control, one choice, all the
+     options visible. A dropdown would hide the other names behind a tap, and in a group of three
+     the whole point is seeing them side by side. */
+  .segment {
+    @apply flex rounded-btn border border-border-strong overflow-hidden shadow-btn;
+  }
+
+  .segment-item {
+    @apply flex-1 min-h-[44px] px-3 bg-btn-plain text-ink text-row font-bold
+           border-l border-border-strong first:border-l-0;
+  }
+
+  .segment-item[aria-pressed="true"] {
+    @apply bg-btn-action text-white;
+  }
+
+  .amount-field {
+    @apply w-28 bg-transparent text-right tnum text-body font-bold text-ink
+           border-0 p-0 focus:outline-none focus:ring-2 focus:ring-action/60 rounded;
+  }
+
+  /* Runs next to "Rest": green when the split accounts for everything, and plainly not green
+     when it does not. */
+  .remainder-ok {
+    @apply text-success tnum font-bold;
+  }
+
+  .remainder-off {
+    @apply text-debt tnum font-bold;
+  }
+
+  .odd-cent {
+    @apply text-caption text-ink-muted tnum ml-1;
+  }
+}

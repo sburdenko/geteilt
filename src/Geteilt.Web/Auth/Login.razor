@@ -1,0 +1,71 @@
+@page "/login"
+@layout SignedOutLayout
+@inherits LocalisedComponent
+@inject AuthApi Api
+@inject AuthState Auth
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<div class="card p-5">
+    <h1 class="text-title mb-4">@L["login.title"]</h1>
+
+    <EditForm Model="_form" OnValidSubmit="SubmitAsync" FormName="login">
+        <DataAnnotationsValidator />
+
+        <label class="label-caps" for="email">@L["field.email"]</label>
+        <InputText id="email" class="field mt-1 mb-4" @bind-Value="_form.Email" autocomplete="username" />
+
+        <label class="label-caps" for="password">@L["field.password"]</label>
+        <InputText id="password" type="password" class="field mt-1 mb-5"
+                   @bind-Value="_form.Password" autocomplete="current-password" />
+
+        <button type="submit" class="btn btn-action w-full" disabled="@_busy">
+            @(_busy ? L["login.busy"] : L["login.submit"])
+        </button>
+    </EditForm>
+
+    <a class="btn btn-plain w-full mt-3" href="register">@L["login.createAccount"]</a>
+</div>
+
+@code {
+    private readonly Credentials _form = new();
+    private bool _busy;
+
+    [SupplyParameterFromQuery(Name = "returnTo")]
+    private string? ReturnTo { get; set; }
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+
+        Result<AuthResponse> result = await Api.LoginAsync(new LoginRequest(_form.Email, _form.Password));
+
+        _busy = false;
+
+        switch (result)
+        {
+            case Result<AuthResponse>.Ok ok:
+                await Auth.SetAsync(AuthSession.From(ok.Value));
+                Navigation.NavigateTo(Destination(), replace: true);
+                break;
+            case Result<AuthResponse>.Failed failed:
+                Toasts.ShowError(failed.Error);
+                break;
+        }
+    }
+
+    // A returnTo that points anywhere but this app would turn the login screen into an open
+    // redirect, so anything absolute is dropped rather than sanitised.
+    private string Destination() =>
+        string.IsNullOrWhiteSpace(ReturnTo) || ReturnTo.StartsWith("//", StringComparison.Ordinal)
+        || Uri.IsWellFormedUriString(ReturnTo, UriKind.Absolute)
+            ? string.Empty
+            : ReturnTo;
+
+    private sealed class Credentials
+    {
+        public string Email { get; set; } = string.Empty;
+
+        public string Password { get; set; } = string.Empty;
+    }
+}

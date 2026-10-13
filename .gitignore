@@ -1,0 +1,21 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+artifacts/
+TestResults/
+coverage/
+*.coverage
+*.trx
+
+appsettings.Local.json
+.env
+
+# Tailwind output: built by `npm run build:css`, never committed.
+src/Geteilt.Web/wwwroot/css/app.css
+node_modules/
+
+.DS_Store

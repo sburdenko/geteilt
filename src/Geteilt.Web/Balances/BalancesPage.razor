@@ -1,0 +1,99 @@
+@page "/groups/{GroupId:guid}/balances"
+@inherits LocalisedComponent
+@inject GeteiltApiClient Api
+
+<div class="flex items-center gap-3 mb-3">
+    <a class="btn btn-plain btn-sm" href="@GroupUrl">@L["balances.back"]</a>
+    <h1 class="text-title flex-1 truncate">@L["balances.title"]</h1>
+</div>
+
+<LoadableView State="_sheet" Retry="LoadAsync">
+    <Loaded Context="sheet">
+        <div class="card overflow-hidden mb-4">
+            @foreach (BalanceDto row in sheet.Balances)
+            {
+                BalanceSide side = BalanceSheet.SideOf(row.Balance);
+
+                <div class="row py-3">
+                    <span class="flex-1">
+                        @row.MemberName
+                        @* In words as well as in colour: red and green alone say nothing to a
+                           colour-blind reader, and the sign alone is easy to misread. *@
+                        <span class="block text-caption font-normal text-ink-muted">@L[SideKey(side)]</span>
+                    </span>
+                    <span class="text-title @AmountClass(side)">@L.Money(row.Balance, sheet.Currency)</span>
+                </div>
+            }
+        </div>
+
+        <p class="label-caps mb-2">@L["balances.plan"]</p>
+
+        @if (sheet.Transfers.Count == 0)
+        {
+            <div class="card p-5 text-center">
+                <p class="text-body font-normal text-ink-muted">@L["balances.allSquare"]</p>
+            </div>
+        }
+        else
+        {
+            <div class="card overflow-hidden">
+                @foreach (PlannedTransferDto transfer in sheet.Transfers)
+                {
+                    string settleUrl = $"/groups/{GroupId}/settle/{transfer.FromMemberId}/{transfer.ToMemberId}";
+
+                    <div class="row py-3 flex-wrap">
+                        <span class="flex-1">@L.Format("balances.pays", transfer.FromName, transfer.ToName)</span>
+                        <span class="text-title tnum">@L.Money(transfer.Amount, transfer.Currency)</span>
+
+                        @* A transfer nobody can scan is still the right transfer. Hiding it would
+                           leave the balances unexplained; an empty QR would look like a bug. *@
+                        @if (transfer.CanGenerateQr)
+                        {
+                            <a class="btn btn-action btn-sm w-full mt-2" href="@settleUrl">@L["balances.showQr"]</a>
+                        }
+                        else
+                        {
+                            <p class="w-full text-caption font-normal text-ink-muted mt-1">
+                                @L.Format("balances.askForIban", transfer.ToName)
+                            </p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </Loaded>
+</LoadableView>
+
+@code {
+    [Parameter] public Guid GroupId { get; set; }
+
+    private Loadable<BalanceSheet> _sheet = new Loadable<BalanceSheet>.Loading();
+
+    private string GroupUrl => $"/groups/{GroupId}";
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _sheet = new Loadable<BalanceSheet>.Loading();
+
+        Result<BalancesResponse> balances = await Api.Balances.GetAsync(GroupId);
+        Result<SettlementPlanResponse> plan = await Api.Balances.PlanAsync(GroupId);
+
+        _sheet = balances.Zip(plan, BalanceSheet.From).ToLoadable();
+    }
+
+    private static string SideKey(BalanceSide side) => side switch
+    {
+        BalanceSide.GetsBack => "balances.getsBack",
+        BalanceSide.Owes => "balances.owes",
+        _ => "balances.square",
+    };
+
+    private static string AmountClass(BalanceSide side) => side switch
+    {
+        BalanceSide.GetsBack => "amount-credit",
+        BalanceSide.Owes => "amount-debt",
+        _ => "text-ink-muted tnum",
+    };
+}

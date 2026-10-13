@@ -1,0 +1,67 @@
+# Production: Caddy in front (TLS, the browser client, /api), the API, Postgres.
+# Nothing but Caddy publishes a port: Postgres and the API are reachable only from inside.
+# Run through deploy.sh, which applies migrations and protect-ibans before the API starts.
+name: geteilt
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: geteilt
+      POSTGRES_USER: geteilt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geteilt -d geteilt"]
+      interval: 5s
+      retries: 10
+    networks: [internal]
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/sburdenko/geteilt-api}:${TAG:?set TAG to the image tag to deploy}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Database=geteilt;Username=geteilt;Password=${POSTGRES_PASSWORD}
+      Jwt__Key: ${JWT_KEY:?set JWT_KEY in deploy/.env}
+      # The domain as written in .env: an identifier both sides compare, not a URL to call.
+      Jwt__Issuer: ${DOMAIN}
+      Jwt__Audience: ${DOMAIN}
+      IbanProtection__Key: ${IBAN_KEY:?set IBAN_KEY in deploy/.env}
+      # Only the proxy may say who the caller is: the login limit counts per caller.
+      ReverseProxy__TrustedNetwork: ${EDGE_SUBNET:-172.30.0.0/24}
+    networks: [internal, edge]
+
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/sburdenko/geteilt-web}:${TAG}
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env}
+      HSTS_MAX_AGE: ${HSTS_MAX_AGE:-31536000}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      # Certificates live here; losing them means asking Let's Encrypt again, which is rate-limited.
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+
+networks:
+  internal:
+    internal: true
+  edge:
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.30.0.0/24}
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

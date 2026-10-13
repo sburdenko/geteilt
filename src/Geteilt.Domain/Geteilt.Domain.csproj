@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately empty: Geteilt.Domain must reference nothing.
+    Geteilt.Architecture.Tests fails the build if a PackageReference or ProjectReference appears here.
+  -->
+
+</Project>

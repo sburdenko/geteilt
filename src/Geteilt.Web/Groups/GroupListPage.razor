@@ -1,0 +1,71 @@
+@page "/"
+@inherits LocalisedComponent
+@inject GeteiltApiClient Api
+@inject AuthApi AuthApi
+@inject AuthState Auth
+
+<div class="flex items-center mb-3">
+    <h1 class="text-title">@L["home.title"]</h1>
+    <a class="btn btn-action btn-sm ml-auto mr-2" href="/groups/new">@L["home.newGroup"]</a>
+    <button class="btn btn-plain btn-sm" @onclick="SignOutAsync">@L["home.signOut"]</button>
+</div>
+
+<LoadableView State="_groups" Retry="LoadAsync">
+    <Loaded Context="groups">
+        @if (groups.Count == 0)
+        {
+            <div class="card p-5 text-center">
+                <p class="text-body font-normal text-ink-muted">@L["home.empty"]</p>
+            </div>
+        }
+        else
+        {
+            <div class="card overflow-hidden">
+                @foreach (GroupDto group in groups)
+                {
+                    <a class="row py-2" href="@($"groups/{group.Id}")">
+                        <span class="flex-1">
+                            @group.Name
+                            <span class="block text-caption font-normal text-ink-muted">
+                                @L.Plural("home.members", group.MemberCount)
+                            </span>
+                        </span>
+                        <span class="@BalanceClass(group.MyBalance)">@L.Money(group.MyBalance, group.BaseCurrency)</span>
+                    </a>
+                }
+            </div>
+        }
+    </Loaded>
+</LoadableView>
+
+@code {
+    private Loadable<IReadOnlyList<GroupDto>> _groups = new Loadable<IReadOnlyList<GroupDto>>.Loading();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _groups = new Loadable<IReadOnlyList<GroupDto>>.Loading();
+        _groups = (await Api.Groups.ListAsync()).ToLoadable();
+    }
+
+    private async Task SignOutAsync()
+    {
+        string? refreshToken = Auth.Session?.RefreshToken;
+
+        // Local first: pressing sign-out has to work with the network down.
+        await Auth.ClearAsync();
+
+        if (refreshToken is not null)
+        {
+            await AuthApi.LogoutAsync(refreshToken);
+        }
+    }
+
+    private static string BalanceClass(decimal balance) => balance switch
+    {
+        > 0 => "amount-credit",
+        < 0 => "amount-debt",
+        _ => "text-ink-muted tnum",
+    };
+}

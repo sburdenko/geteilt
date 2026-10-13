@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    References nothing but the BCL: this assembly is also consumed by Geteilt.Mobile (MAUI),
+    so everything in it has to compile for a mobile target.
+  -->
+
+</Project>

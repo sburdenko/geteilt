@@ -1,0 +1,57 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AuthState Auth
+@inject LanguageState Language
+@inject NavigationManager Navigation
+
+@* Using this layout is what makes a page require a session: the guard lives here rather than in
+   every page, so a new page cannot forget it. Signed-out pages use SignedOutLayout. *@
+
+@if (Auth.SignedIn)
+{
+    <div class="min-h-screen flex flex-col">
+        <header class="leather-bar h-[46px] flex items-center px-4">
+            <span class="text-nav">Geteilt</span>
+            <span class="ml-auto mr-3 text-label opacity-80">@Auth.User?.DisplayName</span>
+            <LanguagePicker />
+        </header>
+        <main class="flex-1 p-4">@Body</main>
+    </div>
+    <ToastHost />
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Auth.Changed += OnAuthChanged;
+        Language.Changed += Redraw;
+        Redirect();
+    }
+
+    public void Dispose()
+    {
+        Auth.Changed -= OnAuthChanged;
+        Language.Changed -= Redraw;
+    }
+
+    private void Redraw() => InvokeAsync(StateHasChanged);
+
+    private void OnAuthChanged()
+    {
+        Redirect();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Redirect()
+    {
+        if (Auth.SignedIn)
+        {
+            return;
+        }
+
+        string returnTo = Uri.EscapeDataString(
+            Navigation.ToBaseRelativePath(Navigation.Uri));
+
+        Navigation.NavigateTo($"login?returnTo={returnTo}", replace: true);
+    }
+}

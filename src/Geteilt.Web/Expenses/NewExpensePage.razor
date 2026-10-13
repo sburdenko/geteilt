@@ -1,0 +1,177 @@
+@page "/groups/{GroupId:guid}/expenses/new"
+@inherits LocalisedComponent
+@inject GeteiltApiClient Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+@inject TimeProvider Clock
+@inject AuthState Auth
+
+<ModalShell Title="@L["expense.new.title"]" LeaveTo="@GroupUrl">
+    <LoadableView State="_form" Retry="LoadAsync">
+        <Loaded Context="form">
+        @{
+            ExpenseDraft draft = form.Draft;
+            SplitPreview preview = draft.Preview();
+            IReadOnlyList<DraftProblem> problems = draft.Problems(Today);
+        }
+        <div class="card mb-4">
+            <label class="row py-2">
+                <span class="label-caps w-32">@L["expense.description"]</span>
+                <input class="field flex-1" value="@draft.Description"
+                       maxlength="@ExpenseDraft.MaxDescriptionLength"
+                       @onchange="@(e => Edit(d => d.WithDescription(e.Value?.ToString() ?? string.Empty)))" />
+            </label>
+            <label class="row py-2">
+                <span class="label-caps w-32">@L["expense.amount"]</span>
+                <input class="field flex-1 text-right tnum" inputmode="decimal" value="@_amountTyped"
+                       @onchange="OnAmountChanged" />
+            </label>
+        </div>
+
+        <p class="label-caps mb-2">@L["expense.paidBy"]</p>
+        <div class="segment mb-4">
+            @foreach (MemberDto member in form.Members)
+            {
+                @* Spelled out rather than bound to the bool: Blazor renders a true attribute as
+                   the empty string, and ARIA wants the literal words. The empty form of it also
+                   tells a screen reader nothing. *@
+                <button type="button" class="segment-item"
+                        aria-pressed="@(draft.PaidByMemberId == member.Id ? "true" : "false")"
+                        @onclick="@(() => Edit(d => d.WithPayer(member.Id)))">
+                    @member.DisplayName
+                </button>
+            }
+        </div>
+
+        <div class="flex items-baseline mb-2">
+            <p class="label-caps flex-1">@L["expense.split"]</p>
+            <span class="@(preview.AddsUp ? "remainder-ok" : "remainder-off")">
+                @L.Format("expense.remaining", L.Money(preview.Remaining, form.Currency))@(preview.AddsUp ? " ✓" : string.Empty)
+            </span>
+        </div>
+
+        @* On its own line: squeezed into the header it pushed "Aufteilen" and the remainder — the
+           two things worth reading — into the margins. *@
+        @if (draft.Split is SplitDraft.Exactly)
+        {
+            <div class="flex justify-end mb-2">
+                <button type="button" class="btn btn-plain btn-sm"
+                        @onclick="@(() => Edit(d => d.SplitEvenly()))">
+                    @L["expense.splitEvenly"]
+                </button>
+            </div>
+        }
+
+        <div class="card overflow-hidden mb-4">
+            @foreach (MemberDto member in form.Members)
+            {
+                bool takingPart = draft.Split.Participants.Contains(member.Id);
+                MemberShare? share = preview.Shares.FirstOrDefault(s => s.MemberId == member.Id);
+
+                <div class="row py-2">
+                    <input type="checkbox" class="w-6 h-6 accent-action" checked="@takingPart"
+                           aria-label="@($"{member.DisplayName} — {L["expense.split"]}")"
+                           @onchange="@(() => Edit(d => d.Toggle(member.Id)))" />
+                    <span class="flex-1">@member.DisplayName</span>
+
+                    @* Always a field, never a label. An even split still shows figures somebody
+                       may want to overrule — one person had the steak — and rendering them as
+                       text would leave the exact-amounts mode with no way in. *@
+                    @if (takingPart)
+                    {
+                        <input class="amount-field" inputmode="decimal"
+                               aria-label="@member.DisplayName"
+                               value="@Typed(share?.Amount ?? 0m)"
+                               @onchange="@(e => OnShareChanged(member.Id, e))" />
+
+                        @if (share?.CarriesTheOddCent == true)
+                        {
+                            <span class="odd-cent" title="@L["expense.oddCentExplained"]">@L["expense.oddCent"]</span>
+                        }
+                    }
+                </div>
+            }
+        </div>
+
+        @if (_showProblems && problems.Count > 0)
+        {
+            <ul class="mb-3">
+                @foreach (DraftProblem problem in problems)
+                {
+                    <li class="text-caption text-debt">@L[DraftProblemPhrase.KeyFor(problem)]</li>
+                }
+            </ul>
+        }
+
+        <button class="btn btn-action w-full" disabled="@(_saving || problems.Count > 0)" @onclick="() => SaveAsync(form)">
+            @(_saving ? L["expense.saving"] : L["expense.save"])
+        </button>
+        </Loaded>
+    </LoadableView>
+</ModalShell>
+
+@code {
+    [Parameter] public Guid GroupId { get; set; }
+
+    private Loadable<ExpenseForm> _form = new Loadable<ExpenseForm>.Loading();
+    private string _amountTyped = string.Empty;
+    private bool _saving;
+    private bool _showProblems;
+
+    private string GroupUrl => $"/groups/{GroupId}";
+
+    private DateOnly Today => Clock.LocalToday();
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _form = new Loadable<ExpenseForm>.Loading();
+
+        Result<GroupDto> group = await Api.Groups.GetAsync(GroupId);
+        Result<IReadOnlyList<MemberDto>> members = await Api.Members.ListAsync(GroupId);
+
+        _form = group
+            .Zip(members, (found, present) => ExpenseForm.Open(found, present, Auth.User?.Id, Today))
+            .ToLoadable();
+    }
+
+    private void Edit(Func<ExpenseDraft, ExpenseDraft> change) =>
+        _form = _form.Map(form => form.With(change(form.Draft)));
+
+    private void OnAmountChanged(ChangeEventArgs args)
+    {
+        _amountTyped = args.Value?.ToString() ?? string.Empty;
+        Edit(draft => draft.WithAmount(Parse(_amountTyped)));
+    }
+
+    private void OnShareChanged(Guid memberId, ChangeEventArgs args) =>
+        Edit(draft => draft.WithExactAmount(memberId, Parse(args.Value?.ToString()) ?? 0m));
+
+    /// <summary>
+    /// Reads what was typed in the reader's own language: a German keyboard produces "12,30" and
+    /// an English one "12.30", and both mean the same money.
+    /// </summary>
+    private decimal? Parse(string? text) =>
+        decimal.TryParse(text, NumberStyles.Number, Language.Culture, out decimal value) ? value : null;
+
+    private string Typed(decimal amount) => amount.ToString("0.00", Language.Culture);
+
+    private async Task SaveAsync(ExpenseForm form)
+    {
+        _showProblems = true;
+
+        if (form.Draft.Problems(Today).Count > 0)
+        {
+            return;
+        }
+
+        _saving = true;
+
+        Result<ExpenseDto> result = await Api.Expenses.CreateAsync(
+            GroupId, form.Draft.ToRequest(form.Currency), form.Idempotency);
+
+        _saving = false;
+        result.Switch(_ => Navigation.NavigateTo(GroupUrl), Toasts.ShowError);
+    }
+}

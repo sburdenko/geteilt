@@ -1,0 +1,32 @@
+@typeparam T
+@inherits LocalisedComponent
+
+@switch (State)
+{
+    case Loadable<T>.Loaded loaded:
+        @Loaded(loaded.Value)
+        break;
+
+    case Loadable<T>.Failed failed:
+        <div class="card p-5 text-center" role="alert">
+            <p class="text-body font-normal text-ink-muted">@ErrorPhrase.For(L, failed.Error)</p>
+            @if (Retry.HasDelegate)
+            {
+                <button class="btn btn-plain btn-sm mt-3" @onclick="Retry">@L["load.retry"]</button>
+            }
+        </div>
+        break;
+
+    default:
+        <p class="text-body font-normal text-ink-muted">@L["load.loading"]</p>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public Loadable<T> State { get; set; } = new Loadable<T>.Loading();
+
+    [Parameter, EditorRequired] public RenderFragment<T> Loaded { get; set; } = _ => _ => { };
+
+    /// <summary>Offered on failure. Without it the failure is only explained.</summary>
+    [Parameter] public EventCallback Retry { get; set; }
+}

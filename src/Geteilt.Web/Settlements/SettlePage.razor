@@ -1,0 +1,154 @@
+@page "/groups/{GroupId:guid}/settle/{FromMemberId:guid}/{ToMemberId:guid}"
+@inherits LocalisedComponent
+@implements IAsyncDisposable
+@inject SettleFlow Flow
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject TimeProvider Clock
+
+<div class="force-light -m-4 p-4 min-h-[calc(100vh-46px)]">
+    <div class="flex items-center gap-3 mb-3">
+        <a class="btn btn-plain btn-sm" href="@BalancesUrl">@L["balances.title"]</a>
+        @if (_screenStaysOn)
+        {
+            <span class="leather-bar rounded-btn px-3 py-1 text-caption uppercase ml-auto">@L["settle.screenOn"]</span>
+        }
+    </div>
+
+    <LoadableView State="_view" Retry="LoadAsync">
+        <Loaded Context="view">
+            @if (view is SettleView.Open { Transfer: var open })
+            {
+                PlannedTransferDto transfer = open.Transfer;
+
+                <div class="flex flex-col landscape:flex-row items-center landscape:items-start gap-6">
+                    <figure class="qr-figure flex flex-col items-center">
+                        <div class="qr-frame">
+                            <img src="@open.QrDataUri"
+                                 alt="@L.Format("settle.qrAlt", transfer.FromName, transfer.ToName)" />
+                        </div>
+                        <figcaption class="label-caps mt-2">GIROCODE · EPC-QR</figcaption>
+                    </figure>
+
+                    <div class="w-full landscape:flex-1 flex flex-col">
+                        <p class="text-body font-normal text-ink-muted">@L.Format("settle.pays", transfer.FromName)</p>
+                        <p class="text-title">@open.Code.BeneficiaryName</p>
+                        <p class="text-amount-xl tnum">@L.Money(open.Code.Amount, open.Code.Currency)</p>
+                        <p class="text-body font-normal text-ink-muted tnum">@L.Format("settle.ibanTail", open.IbanTail)</p>
+
+                        <div class="flex flex-wrap gap-3 mt-4">
+                            <button class="btn btn-plain btn-sm" @onclick="() => CopyIbanAsync(open)">@L["settle.copyIban"]</button>
+                            <button class="btn btn-plain btn-sm" aria-expanded="@(_showDetails ? "true" : "false")"
+                                    @onclick="() => _showDetails = !_showDetails">
+                                @L["settle.showDetails"]
+                            </button>
+                        </div>
+
+                        @if (_showDetails)
+                        {
+                            <dl class="card mt-3">
+                                <div class="row py-2"><dt class="label-caps w-32">@L["settle.details.name"]</dt><dd class="flex-1">@open.Code.BeneficiaryName</dd></div>
+                                <div class="row py-2"><dt class="label-caps w-32">IBAN</dt><dd class="flex-1 tnum select-all">@open.IbanGrouped</dd></div>
+                                <div class="row py-2"><dt class="label-caps w-32">@L["settle.details.amount"]</dt><dd class="flex-1 tnum">@L.Money(open.Code.Amount, open.Code.Currency)</dd></div>
+                                <div class="row py-2"><dt class="label-caps w-32">@L["settle.details.reference"]</dt><dd class="flex-1 select-all">@open.Remittance</dd></div>
+                            </dl>
+                        }
+
+                        @* Bottom right, as far as possible from the hand holding the other phone. *@
+                        <button class="btn btn-success self-end mt-6" disabled="@_saving" @onclick="() => MarkPaidAsync(open)">
+                            @(_saving ? L["settle.saving"] : L["settle.paid"])
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card p-5 text-center">
+                    <p class="text-body font-normal text-ink-muted">@L["settle.nothingOpen"]</p>
+                    <a class="btn btn-plain btn-sm mt-3" href="@BalancesUrl">@L["balances.title"]</a>
+                </div>
+            }
+        </Loaded>
+    </LoadableView>
+</div>
+
+@code {
+    [Parameter] public Guid GroupId { get; set; }
+
+    [Parameter] public Guid FromMemberId { get; set; }
+
+    [Parameter] public Guid ToMemberId { get; set; }
+
+    private Loadable<SettleView> _view = new Loadable<SettleView>.Loading();
+    private bool _screenStaysOn;
+    private bool _showDetails;
+    private bool _saving;
+
+    private string BalancesUrl => $"/groups/{GroupId}/balances";
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _screenStaysOn = await JS.InvokeAsync<bool>("geteilt.keepScreenOn");
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _view = new Loadable<SettleView>.Loading();
+        _view = await Flow.LoadAsync(GroupId, FromMemberId, ToMemberId);
+    }
+
+    private async Task CopyIbanAsync(OpenTransfer open)
+    {
+        if (await JS.InvokeAsync<bool>("geteilt.copyText", open.IbanElectronic))
+        {
+            Toasts.ShowSuccess(L["settle.ibanCopied"]);
+            return;
+        }
+
+        // Nothing was copied, so show the IBAN where it can be selected by hand.
+        _showDetails = true;
+        Toasts.ShowInfo(L["settle.copyFailed"]);
+    }
+
+    private async Task MarkPaidAsync(OpenTransfer open)
+    {
+        _saving = true;
+
+        Result<SettlementDto> result = await Flow.RecordAsync(GroupId, open, Clock.LocalToday());
+
+        _saving = false;
+        result.Switch(
+            _ =>
+            {
+                Toasts.ShowSuccess(L["settle.recorded"]);
+
+                // Replacing the history entry: "back" from the balances must not reopen a code
+                // for a transfer that is already paid.
+                Navigation.NavigateTo(BalancesUrl, replace: true);
+            },
+            Toasts.ShowError);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+
+        try
+        {
+            // The lock outlives the page otherwise: in a single-page app leaving this screen does
+            // not unload the document.
+            await JS.InvokeVoidAsync("geteilt.letScreenSleep");
+        }
+        catch (JSDisconnectedException)
+        {
+            // The browser tab is already gone, and the lock with it.
+        }
+    }
+}

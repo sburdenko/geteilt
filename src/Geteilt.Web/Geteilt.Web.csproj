@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <StaticWebAssetProjectMode>Default</StaticWebAssetProjectMode>
+    <!-- The default ICU shard is EFIGS, which has no Ukrainian: uk-UA would fall back to invariant
+         and print dates and amounts wrongly. no_CJK covers every European locale and
+         costs 78 KB brotli over EFIGS (222 vs 144). Loading the full data instead would be the
+         easy switch and a much bigger one, for languages the product does not ship. -->
+    <BlazorIcuDataFileName>icudt_no_CJK.dat</BlazorIcuDataFileName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Geteilt.Contracts\Geteilt.Contracts.csproj" />
+    <ProjectReference Include="..\Geteilt.Domain\Geteilt.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- Tailwind output. Built by `npm run build:css`, never committed. -->
+  <ItemGroup>
+    <Content Remove="wwwroot/css/app.css" />
+    <Content Include="wwwroot/css/app.css" Condition="Exists('wwwroot/css/app.css')" />
+    <None Include="Styles/**" />
+    <None Include="package.json;tailwind.config.js;postcss.config.js" />
+  </ItemGroup>
+
+</Project>

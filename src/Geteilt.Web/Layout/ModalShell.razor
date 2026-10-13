@@ -1,0 +1,27 @@
+@inherits LocalisedComponent
+
+@* A screen that is a decision, not a place: a way out, a title, and nothing else to navigate to
+   while it is open.
+
+   Laid over the app rather than given its own layout, so the sign-in guard in MainLayout still
+   applies. A second layout would have had to repeat it, and the copy that gets forgotten is the
+   one on the screen that posts money. *@
+<div class="fixed inset-0 z-50 flex flex-col bg-linen">
+    <header class="leather-bar h-[46px] flex items-center px-3 gap-3">
+        <button class="btn btn-plain btn-sm" @onclick="Leave">@L["expense.cancel"]</button>
+        <span class="text-nav flex-1 text-center pr-20">@Title</span>
+    </header>
+    <main class="flex-1 overflow-y-auto p-4">@ChildContent</main>
+</div>
+
+@code {
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired] public string LeaveTo { get; set; } = "/";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private void Leave() => Navigation.NavigateTo(LeaveTo);
+}

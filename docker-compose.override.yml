@@ -1,0 +1,19 @@
+# Local development only. Compose merges this on top of docker-compose.yml automatically.
+# Publishing the database port belongs here and not in the base file: on a server the database
+# must stay on the internal network.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  api:
+    # Development only. On the server the environment stays Production, which keeps the API
+    # documentation off and leaves migrations to a separate deploy step.
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # The Blazor dev server is a different origin, so it needs a CORS entry (
+      # — in production the client is served same-origin and no policy exists at all).
+      # It has to arrive as an environment variable rather than from
+      # appsettings.Development.json: the image is a Release publish, and the SDK deliberately
+      # leaves that file out of one. `dotnet run` outside Docker reads the file instead.
+      Cors__DevelopmentOrigins__0: http://localhost:5088

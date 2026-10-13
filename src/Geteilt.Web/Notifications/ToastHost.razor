@@ -1,0 +1,49 @@
+@inherits LocalisedComponent
+@inject ToastService Toasts
+
+<div class="fixed inset-x-0 bottom-0 z-50 flex flex-col gap-2 p-4 pointer-events-none">
+    @foreach (Toast toast in Toasts.Toasts)
+    {
+        <div class="@BoxClass(toast) pointer-events-auto card p-3 shadow-card" role="alert">
+            <div class="flex items-start gap-3">
+                <span class="text-row flex-1">@toast.Title</span>
+                <button class="text-label text-ink-muted px-2" @onclick="() => Toasts.Dismiss(toast.Id)"
+                        aria-label="@L["toast.close"]">✕</button>
+            </div>
+            @if (toast.Detail is not null)
+            {
+                <details class="mt-1">
+                    <summary class="text-caption text-ink-muted cursor-pointer">@L["toast.details"]</summary>
+                    <p class="text-caption font-normal whitespace-pre-line mt-1">@toast.Detail</p>
+                </details>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Toasts.Changed += OnChanged;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Toasts.Changed -= OnChanged;
+        }
+
+        base.Dispose(disposing);
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private static string BoxClass(Toast toast) => toast.Level switch
+    {
+        ToastLevel.Error => "border-l-4 border-l-debt",
+        ToastLevel.Success => "border-l-4 border-l-success",
+        _ => "border-l-4 border-l-action",
+    };
+}

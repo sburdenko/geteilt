@@ -1,0 +1,66 @@
+@page "/register"
+@layout SignedOutLayout
+@inherits LocalisedComponent
+@inject AuthApi Api
+@inject AuthState Auth
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<div class="card p-5">
+    <h1 class="text-title mb-4">@L["register.title"]</h1>
+
+    <EditForm Model="_form" OnValidSubmit="SubmitAsync" FormName="register">
+        <DataAnnotationsValidator />
+
+        <label class="label-caps" for="name">@L["field.name"]</label>
+        <InputText id="name" class="field mt-1 mb-4" @bind-Value="_form.DisplayName" autocomplete="name" />
+
+        <label class="label-caps" for="email">@L["field.email"]</label>
+        <InputText id="email" class="field mt-1 mb-4" @bind-Value="_form.Email" autocomplete="username" />
+
+        <label class="label-caps" for="password">@L["field.password"]</label>
+        <InputText id="password" type="password" class="field mt-1 mb-5"
+                   @bind-Value="_form.Password" autocomplete="new-password" />
+
+        <button type="submit" class="btn btn-action w-full" disabled="@_busy">
+            @(_busy ? L["login.busy"] : L["register.submit"])
+        </button>
+    </EditForm>
+
+    <a class="btn btn-plain w-full mt-3" href="login">@L["register.haveAccount"]</a>
+</div>
+
+@code {
+    private readonly Registration _form = new();
+    private bool _busy;
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+
+        Result<AuthResponse> result = await Api.RegisterAsync(
+            new RegisterRequest(_form.Email, _form.Password, _form.DisplayName));
+
+        _busy = false;
+
+        switch (result)
+        {
+            case Result<AuthResponse>.Ok ok:
+                await Auth.SetAsync(AuthSession.From(ok.Value));
+                Navigation.NavigateTo(string.Empty, replace: true);
+                break;
+            case Result<AuthResponse>.Failed failed:
+                Toasts.ShowError(failed.Error);
+                break;
+        }
+    }
+
+    private sealed class Registration
+    {
+        public string DisplayName { get; set; } = string.Empty;
+
+        public string Email { get; set; } = string.Empty;
+
+        public string Password { get; set; } = string.Empty;
+    }
+}

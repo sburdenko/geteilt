@@ -1,0 +1,37 @@
+@page "/groups/new"
+@inherits LocalisedComponent
+@inject GeteiltApiClient Api
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<ModalShell Title="@L["group.create.title"]" LeaveTo="/">
+    <div class="card mb-4">
+        <label class="row py-2">
+            <span class="label-caps w-32">@L["group.create.name"]</span>
+            <input class="field flex-1" value="@_name" maxlength="100"
+                   @onchange="@(e => _name = e.Value?.ToString() ?? string.Empty)" />
+        </label>
+    </div>
+
+    <button class="btn btn-action w-full" disabled="@(_saving || string.IsNullOrWhiteSpace(_name))"
+            @onclick="CreateAsync">
+        @(_saving ? L["expense.saving"] : L["group.create.submit"])
+    </button>
+</ModalShell>
+
+@code {
+    private string _name = string.Empty;
+    private bool _saving;
+
+    private async Task CreateAsync()
+    {
+        _saving = true;
+
+        // EUR: a group in another currency would have nowhere to get a rate from, and Girocode
+        // only speaks euro anyway.
+        Result<GroupDto> result = await Api.Groups.CreateAsync(new CreateGroupRequest(_name.Trim(), "EUR"));
+
+        _saving = false;
+        result.Switch(group => Navigation.NavigateTo($"/groups/{group.Id}"), Toasts.ShowError);
+    }
+}

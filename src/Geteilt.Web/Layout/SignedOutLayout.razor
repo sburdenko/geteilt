@@ -1,0 +1,12 @@
+@inherits LayoutComponentBase
+
+<div class="min-h-screen flex flex-col">
+    <header class="leather-bar h-[46px] flex items-center px-4">
+        <span class="text-nav flex-1 text-center">Geteilt</span>
+        <LanguagePicker />
+    </header>
+    <main class="flex-1 flex items-start justify-center p-4">
+        <div class="w-full max-w-sm mt-8">@Body</div>
+    </main>
+</div>
+<ToastHost />

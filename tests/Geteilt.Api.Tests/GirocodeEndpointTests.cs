@@ -1,0 +1,256 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using Geteilt.Application.Ports;
+using Geteilt.Application.Users;
+using Geteilt.Contracts;
+using Geteilt.Contracts.Groups;
+using Geteilt.Contracts.Members;
+using Geteilt.Contracts.Settlements;
+using Geteilt.Domain.Girocode;
+using Geteilt.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Geteilt.Api.Tests;
+
+/// <summary>The Girocode endpoints — the screen the whole product exists for.</summary>
+[Collection(SharedApiFixture.Name)]
+public sealed class GirocodeEndpointTests(GeteiltApiFactory factory) : IAsyncLifetime
+{
+    private const string BorisIban = "DE89370400440532013000";
+
+    private HttpClient _anna = null!;
+    private GroupDto _group = null!;
+    private Guid _annaMember;
+    private Guid _boris;
+
+    public async Task InitializeAsync()
+    {
+        await factory.ResetAsync();
+
+        (_anna, _) = await SignInAsync("anna@example.com");
+
+        HttpResponseMessage created = await _anna.PostAsync(
+            new Uri("/api/groups", UriKind.Relative), new CreateGroupRequest("Abendessen Ristorante", "EUR"));
+        _group = (await created.Content.ReadAsync<GroupDto>())!;
+
+        _boris = (await AddMemberAsync("Franz Mustermänn", BorisIban)).Id;
+
+        _annaMember = await Use(provider => provider.GetRequiredService<AppDbContext>()
+            .Members.Where(member => member.GroupId == _group.Id && member.UserId != null)
+            .Select(member => member.Id).SingleAsync());
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    private async Task<T> Use<T>(Func<IServiceProvider, Task<T>> work)
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+
+        return await work(scope.ServiceProvider);
+    }
+
+    private async Task<(HttpClient Client, Guid UserId)> SignInAsync(string email)
+    {
+        RegistrationResult registered = await Use(provider =>
+            provider.GetRequiredService<IIdentityService>()
+                .RegisterAsync(email, email.Split('@')[0], "Passwort123", CancellationToken.None));
+
+        AccessToken token = factory.Services.GetRequiredService<IAccessTokenService>()
+            .Issue(registered.UserId, email, email.Split('@')[0]);
+
+        HttpClient client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+
+        return (client, registered.UserId);
+    }
+
+    private async Task<MemberDto> AddMemberAsync(string name, string? iban)
+    {
+        HttpResponseMessage response = await _anna.PostAsync(
+            new Uri($"/api/groups/{_group.Id}/members", UriKind.Relative),
+            new AddMemberRequest(name, null, iban));
+
+        return (await response.Content.ReadAsync<MemberDto>())!;
+    }
+
+    private Uri Preview(string format = "png") =>
+        new($"/api/groups/{_group.Id}/girocode/preview?format={format}", UriKind.Relative);
+
+    private static async Task<string?> CodeOf(HttpResponseMessage response) =>
+        (await response.Content.ReadAsync<Dictionary<string, object>>())
+            ?.GetValueOrDefault("code")?.ToString();
+
+    private async Task<Guid> RecordRepaymentAsync(decimal amount)
+    {
+        HttpResponseMessage response = await _anna.PostAsync(
+            new Uri($"/api/groups/{_group.Id}/settlements", UriKind.Relative),
+            new CreateSettlementRequest(
+                _annaMember, _boris, amount, "EUR", DateOnly.FromDateTime(DateTime.UtcNow),
+                SettlementMethod.BankTransfer, null));
+
+        return (await response.Content.ReadAsync<SettlementDto>())!.Id;
+    }
+
+    [Fact]
+    public async Task Text_MatchesWhatTheDomainBuilds()
+    {
+        Guid settlementId = await RecordRepaymentAsync(12.30m);
+
+        HttpResponseMessage response = await _anna.GetAsync(
+            new Uri($"/api/settlements/{settlementId}/girocode?format=text", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        string payload = await response.Content.ReadAsStringAsync();
+
+        string expected = EpcQrPayload.Build(new GirocodeRequest
+        {
+            BeneficiaryName = "Franz Mustermänn",
+            Iban = BorisIban,
+            Amount = 12.30m,
+            Currency = "EUR",
+            Remittance = EpcQrPayload.RemittanceFor("Abendessen Ristorante"),
+        });
+
+        payload.Should().Be(expected);
+        payload.Should().StartWith("BCD\n002\n1\nSCT\n\nFranz Mustermänn\n");
+        payload.Should().Contain("EUR12.30").And.NotContain("EUR12,30");
+    }
+
+    [Fact]
+    public async Task Text_BuildsTheRemittanceFromTheGroupName()
+    {
+        Guid settlementId = await RecordRepaymentAsync(5.00m);
+
+        string payload = await (await _anna.GetAsync(
+            new Uri($"/api/settlements/{settlementId}/girocode?format=text", UriKind.Relative)))
+            .Content.ReadAsStringAsync();
+
+        // Generated by the application, never typed by a user.
+        payload.Should().EndWith("Geteilt: Abendessen Ristorante");
+    }
+
+    [Fact]
+    public async Task Png_IsAnImage()
+    {
+        Guid settlementId = await RecordRepaymentAsync(12.30m);
+
+        HttpResponseMessage response = await _anna.GetAsync(
+            new Uri($"/api/settlements/{settlementId}/girocode", UriKind.Relative));
+
+        response.Content.Headers.ContentType!.MediaType.Should().Be("image/png");
+        (await response.Content.ReadAsByteArrayAsync())
+            .Should().StartWith(new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G' });
+    }
+
+    [Fact]
+    public async Task Svg_IsAnSvgDocument()
+    {
+        Guid settlementId = await RecordRepaymentAsync(12.30m);
+
+        HttpResponseMessage response = await _anna.GetAsync(
+            new Uri($"/api/settlements/{settlementId}/girocode?format=svg", UriKind.Relative));
+
+        response.Content.Headers.ContentType!.MediaType.Should().Be("image/svg+xml");
+        (await response.Content.ReadAsStringAsync()).Should().StartWith("<svg");
+    }
+
+    [Fact]
+    public async Task Preview_WorksBeforeAnythingIsRecorded()
+    {
+        HttpResponseMessage response = await _anna.PostAsync(
+            Preview("text"), new GirocodePreviewRequest(_boris, 30.00m));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("EUR30.00");
+
+        // Nothing was written: the QR screen shows the code before anybody presses "paid".
+        int settlements = await Use(provider =>
+            provider.GetRequiredService<AppDbContext>().Settlements.CountAsync());
+
+        settlements.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Preview_AsJson_CarriesTheImageAndTheFieldsItWasDrawnFrom()
+    {
+        // One response, so a screen showing the code and its details shows one read of the IBAN,
+        // not two that can disagree.
+        HttpResponseMessage response = await _anna.PostAsync(
+            Preview("json"), new GirocodePreviewRequest(_boris, 12.30m));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        GirocodeDto girocode = (await response.Content.ReadAsync<GirocodeDto>())!;
+
+        girocode.BeneficiaryName.Should().Be("Franz Mustermänn");
+        girocode.Iban.Should().Be(BorisIban);
+        girocode.Amount.Should().Be(12.30m);
+        girocode.Currency.Should().Be("EUR");
+        girocode.Remittance.Should().Be(EpcQrPayload.RemittanceFor("Abendessen Ristorante"));
+        Convert.FromBase64String(girocode.PngBase64)[..4].Should().Equal(0x89, 0x50, 0x4E, 0x47);
+    }
+
+    [Fact]
+    public async Task Preview_NeedsNoIdempotencyKey()
+    {
+        // A POST that writes nothing has nothing to repeat.
+        HttpResponseMessage response = await _anna.PostAsJsonAsync(
+            Preview("text"), new GirocodePreviewRequest(_boris, 30.00m));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Preview_ForSomebodyWithoutAnIban_Answers422()
+    {
+        MemberDto clara = await AddMemberAsync("Clara", null);
+
+        HttpResponseMessage response = await _anna.PostAsync(
+            Preview("text"), new GirocodePreviewRequest(clara.Id, 10.00m));
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await CodeOf(response)).Should().Be("epc_no_iban");
+    }
+
+    [Fact]
+    public async Task Preview_FallsBackToTheAccountIban()
+    {
+        (HttpClient david, _) = await SignInAsync("david@example.com");
+        await david.PatchAsync(
+            new Uri("/api/me", UriKind.Relative),
+            new Contracts.Users.UpdateMeRequest(null, "DE02120300000000202051", null));
+
+        MemberDto member = await AddMemberAsync("David", null);
+
+        await _anna.PatchAsync(
+            new Uri($"/api/groups/{_group.Id}/members/{member.Id}", UriKind.Relative),
+            new UpdateMemberRequest(null, null, null));
+
+        HttpResponseMessage joined = await _anna.PostAsync(
+            new Uri($"/api/groups/{_group.Id}/members", UriKind.Relative),
+            new AddMemberRequest("David mit Konto", "david@example.com", null));
+        MemberDto linked = (await joined.Content.ReadAsync<MemberDto>())!;
+
+        string payload = await (await _anna.PostAsync(
+            Preview("text"), new GirocodePreviewRequest(linked.Id, 10.00m)))
+            .Content.ReadAsStringAsync();
+
+        payload.Should().Contain("DE02120300000000202051");
+    }
+
+    [Fact]
+    public async Task Girocode_ForSomebodyElsesSettlement_Answers404()
+    {
+        Guid settlementId = await RecordRepaymentAsync(12.30m);
+
+        (HttpClient boris, _) = await SignInAsync("boris@example.com");
+
+        HttpResponseMessage response = await boris.GetAsync(
+            new Uri($"/api/settlements/{settlementId}/girocode", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+}

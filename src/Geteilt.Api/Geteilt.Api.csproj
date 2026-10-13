@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Geteilt.Application\Geteilt.Application.csproj" />
+    <ProjectReference Include="..\Geteilt.Infrastructure\Geteilt.Infrastructure.csproj" />
+    <ProjectReference Include="..\Geteilt.Contracts\Geteilt.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- So integration tests can reach the idempotency filter's header name and the cleanup
+         sweep without widening the public API for their sake. -->
+    <InternalsVisibleTo Include="Geteilt.Api.Tests" />
+  </ItemGroup>
+
+</Project>

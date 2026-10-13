@@ -1,0 +1,88 @@
+@page "/groups/{GroupId:guid}"
+@inherits LocalisedComponent
+@inject GeteiltApiClient Api
+@inject ToastService Toasts
+
+<div class="flex items-center gap-3 mb-2">
+    <a class="btn btn-plain btn-sm" href="/">@L["group.back"]</a>
+    <a class="btn btn-plain btn-sm ml-auto" href="@($"/groups/{GroupId}/balances")">@L["balances.title"]</a>
+    <a class="btn btn-action btn-sm" href="@($"/groups/{GroupId}/expenses/new")"
+       aria-label="@L["group.addExpense"]">+</a>
+</div>
+
+@* A line of its own: next to three buttons a phone had room for "Ski …" and nothing more. *@
+<h1 class="text-title truncate mb-3">@_feed.Match(() => string.Empty, feed => feed.Group.Name, _ => string.Empty)</h1>
+
+<LoadableView State="_feed" Retry="LoadAsync">
+    <Loaded Context="feed">
+        @if (feed.Expenses.Count == 0)
+        {
+            <div class="card p-5 text-center">
+                <p class="text-body font-normal text-ink-muted">@L["group.noExpenses"]</p>
+            </div>
+        }
+        else
+        {
+            <div class="card overflow-hidden">
+                @foreach (ExpenseDto expense in feed.Expenses)
+                {
+                    <div class="row py-2">
+                        <span class="flex-1">
+                            @expense.Description
+                            <span class="block text-caption font-normal text-ink-muted">
+                                @L.Format("group.paidBy", expense.PaidByName)
+                            </span>
+                        </span>
+                        <span class="tnum">@L.Money(expense.Amount, expense.Currency)</span>
+                    </div>
+                }
+            </div>
+
+            @if (feed.HasMore)
+            {
+                <button class="btn btn-plain w-full mt-3" disabled="@_loadingMore" @onclick="() => LoadMoreAsync(feed)">
+                    @(_loadingMore ? L["load.loading"] : L["group.loadMore"])
+                </button>
+            }
+        }
+    </Loaded>
+</LoadableView>
+
+@code {
+    [Parameter] public Guid GroupId { get; set; }
+
+    private Loadable<GroupFeed> _feed = new Loadable<GroupFeed>.Loading();
+
+    // A bool and not a state of its own: the feed already on screen stays valid either way, and
+    // there is nothing to carry but "busy".
+    private bool _loadingMore;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _feed = new Loadable<GroupFeed>.Loading();
+
+        Result<GroupDto> group = await Api.Groups.GetAsync(GroupId);
+        Result<ExpensePage> firstPage = await Api.Expenses.ListAsync(GroupId, cursor: null);
+
+        _feed = group
+            .Zip(firstPage, (found, page) => new GroupFeed(found, page.Items, page.NextCursor))
+            .ToLoadable();
+    }
+
+    private async Task LoadMoreAsync(GroupFeed feed)
+    {
+        _loadingMore = true;
+
+        // The cursor goes back exactly as it arrived. Building one here would tie the client to a
+        // format the server is free to change.
+        Result<ExpensePage> next = await Api.Expenses.ListAsync(GroupId, feed.NextCursor);
+
+        _loadingMore = false;
+
+        // A failed next page leaves the loaded ones where they are, so it is a toast and not a
+        // failed screen.
+        next.Switch(page => _feed = _feed.Map(current => current.Append(page)), Toasts.ShowError);
+    }
+}

@@ -1,0 +1,20 @@
+@inherits LocalisedComponent
+
+<label class="sr-only" for="language">@L["language.label"]</label>
+<select id="language" class="btn btn-plain btn-sm px-3 appearance-none"
+        value="@Language.Current" @onchange="ChangeAsync">
+    @foreach (string language in SupportedLanguage.All)
+    {
+        <option value="@language">@L[$"language.{language}"]</option>
+    }
+</select>
+
+@code {
+    private async Task ChangeAsync(ChangeEventArgs args)
+    {
+        if (args.Value is string language)
+        {
+            await Language.SetAsync(language);
+        }
+    }
+}

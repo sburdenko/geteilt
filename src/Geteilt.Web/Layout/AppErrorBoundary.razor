@@ -1,0 +1,27 @@
+@inherits LocalisedComponent
+
+@* Nothing a component throws should leave a blank page behind. *@
+
+<ErrorBoundary @ref="_boundary">
+    <ChildContent>@ChildContent</ChildContent>
+    <ErrorContent>
+        <div class="p-7">
+            <div class="card p-5">
+                <h1 class="text-title">@L["crash.title"]</h1>
+                <p class="text-body font-normal mt-2 text-ink-muted">
+                    @L["crash.body"]
+                </p>
+                <button class="btn btn-action mt-5" @onclick="Retry">@L["crash.reload"]</button>
+            </div>
+        </div>
+    </ErrorContent>
+</ErrorBoundary>
+
+@code {
+    private ErrorBoundary? _boundary;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private void Retry() => _boundary?.Recover();
+}

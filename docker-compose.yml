@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: geteilt
+      POSTGRES_USER: geteilt
+      # Fails loudly instead of starting with an empty password when .env is missing.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geteilt -d geteilt"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Geteilt.Api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Database=geteilt;Username=geteilt;Password=${POSTGRES_PASSWORD:?copy .env.example to .env first}
+      # Never in the image and never in git: the key arrives from the environment.
+      Jwt__Key: ${JWT_KEY:?set JWT_KEY in .env — openssl rand -base64 48}
+      IbanProtection__Key: ${IBAN_KEY:?set IBAN_KEY in .env — openssl rand -base64 32}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

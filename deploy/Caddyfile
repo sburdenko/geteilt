@@ -1,0 +1,42 @@
+# One site, one origin: the browser client from /srv, the API under /api. Caddy gets and renews
+# the TLS certificate from Let's Encrypt by itself; for DOMAIN=localhost it uses
+# its own local CA instead, which is how the production setup is rehearsed on a laptop.
+{$DOMAIN} {
+	# Compressed on the fly rather than from the .br/.gz files Blazor publishes: Caddy 2.10 served
+	# those with 206 Partial Content to requests that asked for no range, checked in the rehearsal.
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		root * /srv
+
+		# Revalidated on every load. index.html names the fingerprinted files of one release, and a
+		# browser keeping an old copy would ask for files the next release no longer has. A 304
+		# costs a round trip; a stale page costs an app that does not start.
+		header Cache-Control "no-cache"
+
+		# Client-side routes such as /groups/{id} have no file behind them, so index.html takes
+		# them. A path with an extension is a file: missing, it is a 404, not a page of HTML that
+		# the browser would try to run as a script.
+		@route {
+			not path_regexp \.[A-Za-z0-9]+$
+			not file
+		}
+		rewrite @route /index.html
+
+		file_server
+	}
+
+	header {
+		# 0 on a laptop rehearsal: a year of HSTS on localhost would break every plain-http
+		# development server on it.
+		Strict-Transport-Security "max-age={$HSTS_MAX_AGE:31536000}"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+}
